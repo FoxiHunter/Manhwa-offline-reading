@@ -1,13 +1,20 @@
+// main.js
 
-const totalChapters = 3;
+const totalChapters = 219;
+const startFrom = 18;
+const batchSize = 20;
+let loadedBatches = 0;
+const chapters = getChapters();
+let isLoading = false;
 
 function getChapters() {
   const result = [];
-  for (let i = 1; i <= totalChapters; i++) {
+  for (let i = 0; i < totalChapters; i++) {
+    const chapterNumber = startFrom + i;
     result.push({
-      title: `Глава ${i}`,
-      filename: `${i}.png`,
-      id: `chapter-${i}`
+      title: `Глава ${chapterNumber}`,
+      folder: `${chapterNumber}`,
+      id: `chapter-${chapterNumber}`
     });
   }
   return result;
@@ -38,31 +45,112 @@ function updateStar(id) {
   }
 }
 
-function renderChapters() {
-  const reader = document.getElementById('reader');
-  const chapters = getChapters();
-  chapters.forEach(chapter => {
+function loadNextBatch() {
+  if (isLoading) return;
+  isLoading = true;
+
+  const startIndex = loadedBatches * batchSize;
+  const endIndex = Math.min(startIndex + batchSize, chapters.length);
+
+  let totalImages = 0;
+  let loadedImages = 0;
+
+  for (let i = startIndex; i < endIndex; i++) {
+    const chapter = chapters[i];
+    const reader = document.getElementById('reader');
+
     const h2 = document.createElement('h2');
     h2.textContent = chapter.title;
     h2.classList.add('chapter-title');
+    h2.id = chapter.id;
     reader.appendChild(h2);
 
-    const img = document.createElement('img');
-    img.src = `images/магия вернувшегося должна быть особенной/${chapter.filename}`;
-    img.alt = chapter.title;
-    img.classList.add('page-img');
-    img.loading = 'lazy';
-    reader.appendChild(img);
-    
-    addFullscreenEvent(img);
+    const chapterFolder = `images/магия вернувшегося должна быть особенной/${chapter.folder}`;
+
+    for (let j = 1; j <= 100; j++) {
+      const img = document.createElement('img');
+      const filename = j < 10 ? `0${j}` : `${j}`;
+      const pngPath = `${chapterFolder}/${filename}.png`;
+      const jpegPath = `${chapterFolder}/${filename}.jpeg`;
+
+      img.src = pngPath;
+      img.alt = `${chapter.title} - страница ${j}`;
+      img.classList.add('page-img');
+      img.loading = 'lazy';
+
+      totalImages++;
+
+      img.onload = img.onerror = () => {
+        loadedImages++;
+        if (loadedImages === totalImages && loadedBatches === 0) {
+          showContentAfterLoad();
+        }
+      };
+
+      img.onerror = () => {
+        img.onerror = null;
+        img.src = jpegPath;
+        img.onerror = () => {
+          loadedImages++;
+          img.remove();
+        };
+      };
+
+      reader.appendChild(img);
+      addFullscreenEvent(img);
+    }
+
     const star = document.createElement('div');
     star.id = `star-${chapter.id}`;
     star.classList.add('star-btn');
     star.addEventListener('click', () => markChapter(chapter.id));
     reader.appendChild(star);
-
     updateStar(chapter.id);
-  });
+  }
+
+  loadedBatches++;
+  isLoading = false;
+
+  if (loadedBatches * batchSize < chapters.length) {
+    observeLastChapter();
+  }
+}
+
+function observeLastChapter() {
+  const lastIndex = loadedBatches * batchSize - 1;
+  const lastChapterEl = document.getElementById(chapters[lastIndex].id);
+  if (!lastChapterEl) return;
+
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        observer.disconnect();
+        loadNextBatch();
+      }
+    });
+  }, { rootMargin: '200px' });
+
+  observer.observe(lastChapterEl);
+}
+
+function scrollToLastReadChapter() {
+  for (let i = chapters.length - 1; i >= 0; i--) {
+    if (isChapterRead(chapters[i].id)) {
+      const tryScroll = () => {
+        const el = document.getElementById(chapters[i].id);
+        if (el) el.scrollIntoView({ behavior: 'smooth' });
+        else setTimeout(tryScroll, 500);
+      };
+      tryScroll();
+      break;
+    }
+  }
+}
+
+function showContentAfterLoad() {
+  const loader = document.getElementById('loader');
+  if (loader) loader.style.display = 'none';
+  scrollToLastReadChapter();
 }
 
 function startSnow() {
@@ -90,20 +178,6 @@ function stopSnow() {
   container.innerHTML = '';
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  renderChapters();
-  const toggle = document.getElementById('toggle-effects');
-  startSnow();
-  toggle.addEventListener('change', function () {
-    if (this.checked) {
-      document.body.classList.remove('no-effects');
-      startSnow();
-    } else {
-      document.body.classList.add('no-effects');
-      stopSnow();
-    }
-  });
-});
 function enableFullscreen(img) {
   const container = document.createElement('div');
   container.classList.add('fullscreen');
@@ -124,3 +198,28 @@ function enableFullscreen(img) {
 function addFullscreenEvent(img) {
   img.addEventListener('click', () => enableFullscreen(img));
 }
+
+// Инициализация
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('skip-loader').addEventListener('click', () => {
+    const loader = document.getElementById('loader');
+    if (loader) loader.style.display = 'none';
+    scrollToLastReadChapter();
+  });
+
+  startSnow();
+
+  const toggle = document.getElementById('toggle-effects');
+  toggle.addEventListener('change', function () {
+    if (this.checked) {
+      document.body.classList.remove('no-effects');
+      startSnow();
+    } else {
+      document.body.classList.add('no-effects');
+      stopSnow();
+    }
+  });
+
+  loadNextBatch();
+});
